@@ -1,97 +1,102 @@
-import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:fume/Counters/ItemQuantity.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:noise_meter/noise_meter.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'Authentication/authenication.dart';
-import 'package:fume/Config/config.dart';
-import 'Counters/cartitemcounter.dart';
-import 'Counters/changeAddresss.dart';
-import 'Counters/totalMoney.dart';
-import 'Store/storehome.dart';
+import 'dart:async';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  EcommerceApp.auth = FirebaseAuth.instance;
-  EcommerceApp.sharedPreferences = await SharedPreferences.getInstance();
-  EcommerceApp.firestore = Firestore.instance;
-  runApp(MyApp());
+void main() {
+  runApp(new MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (c)=> CartItemCounter()),
-        ChangeNotifierProvider(create: (c)=> ItemQuantity()),
-        ChangeNotifierProvider(create: (c)=> AddressChanger()),
-        ChangeNotifierProvider(create: (c)=> TotalAmount()),
-
-      ],
-      child: MaterialApp(
-        title: "fume",
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          primaryColor: Colors.blue,
-        ),
-        home: SplashScreen(),
-      ),
-    );
-  }
+  _MyAppState createState() => new _MyAppState();
 }
 
-class SplashScreen extends StatefulWidget {
-  @override
-  _SplashScreenState createState() => _SplashScreenState();
-}
+class _MyAppState extends State<MyApp> {
+  bool _isRecording = false;
+  StreamSubscription<NoiseReading>? _noiseSubscription;
+  late NoiseMeter _noiseMeter;
+  String _noisereadingMaxDecibel = "";
+  String _noisereadingMeanDecibel = "";
 
-class _SplashScreenState extends State<SplashScreen> {
   @override
-  void initState(){
+  void initState() {
     super.initState();
-    displaySplash();
+    _noiseMeter = new NoiseMeter(onError);
   }
-  displaySplash(){
-    Timer(Duration(seconds:5),() async{
-      if(await EcommerceApp.auth.currentUser()!= null){
-        Route route = MaterialPageRoute(builder: (_)=> StoreHome());
-        Navigator.pushReplacement(context, route);
-      }else{
-        Route route = MaterialPageRoute(builder: (_)=> AuthenticScreen());
-        Navigator.pushReplacement(context, route);
+
+  @override
+  void dispose() {
+    _noiseSubscription?.cancel();
+    super.dispose();
+  }
+
+  void onData(NoiseReading noiseReading) {
+    this.setState(() {
+      if (!this._isRecording) {
+        this._isRecording = true;
       }
+      _noisereadingMaxDecibel = noiseReading.maxDecibel.toString();
+      _noisereadingMeanDecibel = noiseReading.meanDecibel.toString();
     });
+    print(noiseReading.toString());
   }
+
+  void onError(Object error) {
+    print(error.toString());
+    _isRecording = false;
+  }
+
+  void start() async {
+    try {
+      _noiseSubscription = _noiseMeter.noiseStream.listen(onData);
+    } catch (err) {
+      print(err);
+    }
+  }
+
+  void stop() async {
+    try {
+      if (_noiseSubscription != null) {
+        _noiseSubscription!.cancel();
+        _noiseSubscription = null;
+      }
+      this.setState(() {
+        this._isRecording = false;
+      });
+    } catch (err) {
+      print('stopRecorder error: $err');
+    }
+  }
+
+  List<Widget> getContent() => <Widget>[
+        Container(
+            margin: EdgeInsets.all(25),
+            child: Column(children: [
+              Container(
+                  child: Column(children: [
+                Text(_isRecording ? "Mic: ON" : "Mic: OFF",
+                    style: TextStyle(fontSize: 20, color: Colors.blue)),
+                Text("meandecibel=" + _noisereadingMeanDecibel,
+                    style: TextStyle(fontSize: 20, color: Colors.blue)),
+                Text("maxdecibel=" + _noisereadingMaxDecibel,
+                    style: TextStyle(fontSize: 20, color: Colors.blue))
+              ])),
+            ]))
+      ];
+
+  @override
   Widget build(BuildContext context) {
-    return Material(
-      child: Container(
-        decoration: new BoxDecoration(
-          gradient: new LinearGradient(
-            colors: [Colors.blue, Colors.lightBlueAccent],
-            begin: const FractionalOffset(0.0,0.0),
-            end: const FractionalOffset(1.0, 0.0),
-            stops: [0.0,1.0],
-            tileMode: TileMode.clamp
-          ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset("images/welcome.png"),
-              SizedBox(height: 20.0,),
-              Text(
-                  "Welcome to fume",
-                  style: TextStyle(color:Colors.white),
-              ),
-            ],
-          ),
-        ),
-      )
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+            child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: getContent())),
+        floatingActionButton: FloatingActionButton(
+            backgroundColor: _isRecording ? Colors.red : Colors.green,
+            onPressed: _isRecording ? stop : start,
+            child: _isRecording ? Icon(Icons.stop) : Icon(Icons.mic)),
+      ),
     );
   }
 }
